@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,11 +47,19 @@ func (w *worker) start(conn *RedisConn, job *job) error {
 }
 
 func (w *worker) fail(conn *RedisConn, job *job, err error) error {
+	var backtrace []string
+	switch typedError := err.(type) {
+	case *WorkerError:
+		backtrace = typedError.Backtrace
+	default:
+		backtrace = []string{}
+	}
 	failure := &failure{
 		FailedAt:  time.Now(),
 		Payload:   job.Payload,
 		Exception: "Error",
 		Error:     err.Error(),
+		Backtrace: backtrace,
 		Worker:    w,
 		Queue:     job.Queue,
 	}
@@ -137,9 +147,11 @@ func (w *worker) run(job *job, workerFunc workerFunc) {
 			PutConn(conn)
 		}
 	}()
+	var stackTrace []string
 	defer func() {
 		if r := recover(); r != nil {
-			err = errors.New(fmt.Sprint(r))
+			stackTrace = strings.Split(string(debug.Stack()), "\n")
+			err = NewWorkerError(fmt.Sprint(r), stackTrace)
 		}
 	}()
 
@@ -152,4 +164,17 @@ func (w *worker) run(job *job, workerFunc workerFunc) {
 		PutConn(conn)
 	}
 	err = workerFunc(job.Queue, job.Payload.Args...)
+}
+
+type WorkerError struct {
+	message   string
+	Backtrace []string
+}
+
+func NewWorkerError(message string, backtrace []string) *WorkerError {
+	return &WorkerError{message: message, Backtrace: backtrace}
+}
+
+func (workerError *WorkerError) Error() string {
+	return workerError.message
 }
