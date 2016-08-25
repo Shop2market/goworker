@@ -116,6 +116,15 @@ func Work() error {
 		if err != nil {
 			return err
 		}
+
+		conn, err := GetConn()
+		if err != nil {
+			logger.Criticalf("Error on getting connection")
+		} else {
+			worker.process.start(conn)
+			PutConn(conn)
+		}
+
 		worker.work(jobs, &monitor)
 	}
 

@@ -39,11 +39,11 @@ func (w *worker) start(conn *RedisConn, job *Job) error {
 	if err != nil {
 		return err
 	}
-
+	fmt.Println(fmt.Sprintf("%sworker:%s", namespace, w))
 	conn.Send("SET", fmt.Sprintf("%sworker:%s", namespace, w), buffer)
 	logger.Debugf("Processing %s since %s [%v]", work.Queue, work.RunAt, work.Payload.Class)
 
-	return w.process.start(conn)
+	return conn.Flush()
 }
 
 func (w *worker) fail(conn *RedisConn, job *Job, err error) error {
@@ -85,7 +85,8 @@ func (w *worker) finish(conn *RedisConn, job *Job, err error) error {
 	} else {
 		w.succeed(conn, job)
 	}
-	return w.process.finish(conn)
+	conn.Send("DEL", fmt.Sprintf("%sworker:%s", namespace, w.process.String()))
+	return conn.Flush()
 }
 
 func (w *worker) work(jobs <-chan *Job, monitor *sync.WaitGroup) {
