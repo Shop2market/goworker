@@ -39,8 +39,7 @@ func (w *worker) start(conn *RedisConn, job *Job) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(fmt.Sprintf("%sworker:%s", namespace, w))
-	conn.Send("SET", fmt.Sprintf("%sworker:%s", namespace, w), buffer)
+	conn.Send("SET", fmt.Sprintf("%sworker:%s", workerSettings.Namespace, w), buffer)
 	logger.Debugf("Processing %s since %s [%v]", work.Queue, work.RunAt, work.Payload.Class)
 
 	return conn.Flush()
@@ -67,14 +66,14 @@ func (w *worker) fail(conn *RedisConn, job *Job, err error) error {
 	if err != nil {
 		return err
 	}
-	conn.Send("RPUSH", fmt.Sprintf("%sfailed", namespace), buffer)
+	conn.Send("RPUSH", fmt.Sprintf("%sfailed", workerSettings.Namespace), buffer)
 
 	return w.process.fail(conn)
 }
 
 func (w *worker) succeed(conn *RedisConn, job *Job) error {
-	conn.Send("INCR", fmt.Sprintf("%sstat:processed", namespace))
-	conn.Send("INCR", fmt.Sprintf("%sstat:processed:%s", namespace, w))
+	conn.Send("INCR", fmt.Sprintf("%sstat:processed", workerSettings.Namespace))
+	conn.Send("INCR", fmt.Sprintf("%sstat:processed:%s", workerSettings.Namespace, w))
 
 	return nil
 }
@@ -85,7 +84,7 @@ func (w *worker) finish(conn *RedisConn, job *Job, err error) error {
 	} else {
 		w.succeed(conn, job)
 	}
-	conn.Send("DEL", fmt.Sprintf("%sworker:%s", namespace, w.process.String()))
+	conn.Send("DEL", fmt.Sprintf("%sworker:%s", workerSettings.Namespace, w.process.String()))
 	return conn.Flush()
 }
 
