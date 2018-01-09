@@ -56,7 +56,7 @@ func (p *poller) poll(interval time.Duration, quit <-chan bool) <-chan *Job {
 
 	conn, err := GetConn()
 	if err != nil {
-		logger.Criticalf("Error on getting connection in poller %s", p)
+		logger.Criticalf("Error on getting connection in poller %s: %v", p, err)
 		close(jobs)
 		return jobs
 	} else {
@@ -71,7 +71,7 @@ func (p *poller) poll(interval time.Duration, quit <-chan bool) <-chan *Job {
 
 			conn, err := GetConn()
 			if err != nil {
-				logger.Criticalf("Error on getting connection in poller %s", p)
+				logger.Criticalf("Error on getting connection in poller %s: %v", p, err)
 				return
 			} else {
 				p.finish(conn)
@@ -87,7 +87,7 @@ func (p *poller) poll(interval time.Duration, quit <-chan bool) <-chan *Job {
 			default:
 				conn, err := GetConn()
 				if err != nil {
-					logger.Criticalf("Error on getting connection in poller %s", p)
+					logger.Criticalf("Error on getting connection in poller %s: %v", p, err)
 					return
 				}
 
@@ -111,12 +111,13 @@ func (p *poller) poll(interval time.Duration, quit <-chan bool) <-chan *Job {
 						}
 						conn, err := GetConn()
 						if err != nil {
-							logger.Criticalf("Error on getting connection in poller %s", p)
+							logger.Criticalf("Error on getting connection in poller %s: %v", p, err)
 							return
 						}
 
 						conn.Send("LPUSH", fmt.Sprintf("%squeue:%s", workerSettings.Namespace, job.Queue), buf)
 						conn.Flush()
+						PutConn(conn)
 						return
 					}
 				} else {
