@@ -53,7 +53,8 @@ func (p *process) close(conn *RedisConn) error {
 }
 
 func (p *process) start(conn *RedisConn) error {
-	conn.Send("SET", fmt.Sprintf("%sworker:%s:started", workerSettings.Namespace, p), time.Now().String())
+
+	conn.Send("SET", fmt.Sprintf("%sworker:%s:started", workerSettings.Namespace, p), time.Now().Format("2006-01-02 15:04:05 -0700"))
 	conn.Flush()
 
 	return nil

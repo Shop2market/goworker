@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,19 +39,26 @@ func (w *worker) start(conn *RedisConn, job *Job) error {
 	if err != nil {
 		return err
 	}
-
 	conn.Send("SET", fmt.Sprintf("%sworker:%s", workerSettings.Namespace, w), buffer)
 	logger.Debugf("Processing %s since %s [%v]", work.Queue, work.RunAt, work.Payload.Class)
 
-	return w.process.start(conn)
+	return conn.Flush()
 }
 
 func (w *worker) fail(conn *RedisConn, job *Job, err error) error {
+	var backtrace []string
+	switch typedError := err.(type) {
+	case *WorkerError:
+		backtrace = typedError.Backtrace
+	default:
+		backtrace = []string{}
+	}
 	failure := &failure{
 		FailedAt:  time.Now(),
 		Payload:   job.Payload,
 		Exception: "Error",
 		Error:     err.Error(),
+		Backtrace: backtrace,
 		Worker:    w,
 		Queue:     job.Queue,
 	}
@@ -75,13 +84,14 @@ func (w *worker) finish(conn *RedisConn, job *Job, err error) error {
 	} else {
 		w.succeed(conn, job)
 	}
-	return w.process.finish(conn)
+	conn.Send("DEL", fmt.Sprintf("%sworker:%s", workerSettings.Namespace, w.process.String()))
+	return conn.Flush()
 }
 
 func (w *worker) work(jobs <-chan *Job, monitor *sync.WaitGroup) {
 	conn, err := GetConn()
 	if err != nil {
-		logger.Criticalf("Error on getting connection in worker %v", w)
+		logger.Criticalf("Error on getting connection in worker %v: %v", w, err)
 		return
 	} else {
 		w.open(conn)
@@ -96,7 +106,7 @@ func (w *worker) work(jobs <-chan *Job, monitor *sync.WaitGroup) {
 
 			conn, err := GetConn()
 			if err != nil {
-				logger.Criticalf("Error on getting connection in worker %v", w)
+				logger.Criticalf("Error on getting connection in worker %v: %v", w, err)
 				return
 			} else {
 				w.close(conn)
@@ -114,7 +124,7 @@ func (w *worker) work(jobs <-chan *Job, monitor *sync.WaitGroup) {
 
 				conn, err := GetConn()
 				if err != nil {
-					logger.Criticalf("Error on getting connection in worker %v", w)
+					logger.Criticalf("Error on getting connection in worker %v: %v", w, err)
 					return
 				} else {
 					w.finish(conn, job, errors.New(errorLog))
@@ -130,26 +140,41 @@ func (w *worker) run(job *Job, workerFunc workerFunc) {
 	defer func() {
 		conn, errCon := GetConn()
 		if errCon != nil {
-			logger.Criticalf("Error on getting connection in worker %v", w)
+			logger.Criticalf("Error on getting connection in worker on finish %v: %v", w, errCon)
 			return
 		} else {
 			w.finish(conn, job, err)
 			PutConn(conn)
 		}
 	}()
+	var stackTrace []string
 	defer func() {
 		if r := recover(); r != nil {
-			err = errors.New(fmt.Sprint(r))
+			stackTrace = strings.Split(string(debug.Stack()), "\n")
+			err = NewWorkerError(fmt.Sprint(r), stackTrace)
 		}
 	}()
 
 	conn, err := GetConn()
 	if err != nil {
-		logger.Criticalf("Error on getting connection in worker %v", w)
+		logger.Criticalf("Error on getting connection in worker on start %v: %v", w, err)
 		return
 	} else {
 		w.start(conn, job)
 		PutConn(conn)
 	}
 	err = workerFunc(job.Queue, job.Payload.Args...)
+}
+
+type WorkerError struct {
+	message   string
+	Backtrace []string
+}
+
+func NewWorkerError(message string, backtrace []string) *WorkerError {
+	return &WorkerError{message: message, Backtrace: backtrace}
+}
+
+func (workerError *WorkerError) Error() string {
+	return workerError.message
 }
